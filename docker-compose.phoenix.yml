@@ -1,0 +1,94 @@
+version: "3.9"
+
+# =============================================================================
+# Venti AI Platform — Phoenix Observability Stack
+#
+# Runs Arize Phoenix (LLM tracing + evaluation) backed by PostgreSQL.
+# Designed to run alongside Multica's self-hosted server.
+#
+# Usage:
+#   docker compose -f docker-compose.phoenix.yml up -d
+#
+# Ports exposed:
+#   6006  — Phoenix web UI          (http://localhost:6006)
+#   4317  — OTLP gRPC collector     (used by instrumented code)
+#   4318  — OTLP HTTP collector     (alternative to gRPC)
+#
+# All trace data stays on this machine. Nothing is sent to Arize servers.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — persistent storage for Phoenix traces, datasets, experiments.
+  # Using a dedicated instance to avoid conflicts with Multica's database.
+  # ---------------------------------------------------------------------------
+  phoenix-db:
+    image: postgres:16
+    container_name: phoenix-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: phoenix
+      POSTGRES_PASSWORD: ${PHOENIX_DB_PASSWORD:-phoenix}
+      POSTGRES_DB: phoenix
+    volumes:
+      - phoenix_db_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # Exposed on 5433 to avoid conflict with Multica's postgres on 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U phoenix -d phoenix"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - phoenix-net
+
+  # ---------------------------------------------------------------------------
+  # Phoenix — AI observability platform.
+  # Collects OpenTelemetry traces from instrumented code, provides UI for
+  # trace inspection, evaluations, dataset management, and prompt experiments.
+  # ---------------------------------------------------------------------------
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: phoenix
+    restart: unless-stopped
+    depends_on:
+      phoenix-db:
+        condition: service_healthy
+    environment:
+      # Persistent storage: all trace data survives container restarts
+      PHOENIX_SQL_DATABASE_URL: postgresql://phoenix:${PHOENIX_DB_PASSWORD:-phoenix}@phoenix-db:5432/phoenix
+
+      # Auth: disabled for local development. Set to "true" for shared/production use.
+      PHOENIX_ENABLE_AUTH: ${PHOENIX_ENABLE_AUTH:-false}
+
+      # Required when auth is enabled — generate with: openssl rand -hex 32
+      PHOENIX_SECRET: ${PHOENIX_SECRET:-local-dev-secret-change-for-production}
+
+      # Opt out of Phoenix sending page-view analytics to Arize.
+      # Your trace data is NEVER sent; this only covers UI interaction metrics.
+      PHOENIX_TELEMETRY_ENABLED: "false"
+    ports:
+      - "6006:6006"   # Web UI
+      - "4317:4317"   # OTLP gRPC (primary ingest endpoint)
+      - "4318:4318"   # OTLP HTTP (alternative ingest endpoint)
+    volumes:
+      - phoenix_data:/phoenix
+    networks:
+      - phoenix-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6006/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  phoenix_db_data:
+    driver: local
+  phoenix_data:
+    driver: local
+
+networks:
+  phoenix-net:
+    driver: bridge
