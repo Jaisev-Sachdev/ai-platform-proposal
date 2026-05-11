@@ -1,0 +1,4 @@
+anthropic>=0.40.0
+arize-phoenix-otel>=0.7.0
+openinference-instrumentation-anthropic>=0.1.0
+python-dotenv>=1.0.0
