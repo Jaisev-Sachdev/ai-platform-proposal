@@ -1,47 +1,29 @@
-# =============================================================================
-# Venti AI Platform -- LiteLLM Proxy Configuration
-#
-# LiteLLM sits between Claude Code (and any other AI tool) and Anthropic's API.
-# Every request that passes through it is automatically traced to Phoenix.
-#
-# How engineers use this:
-#   Set ANTHROPIC_BASE_URL=http://localhost:4000 in their environment.
-#   Set ANTHROPIC_API_KEY=sk-venti-local (the proxy key, not the real key).
-#   Claude Code will route through here, get traced, and work exactly as before.
-#
-# The real ANTHROPIC_API_KEY is stored only in the proxy container's environment.
-# Engineers never need to handle the real key directly.
-# =============================================================================
-
 model_list:
-  # Claude Sonnet -- primary model for most agent tasks
   - model_name: claude-sonnet-4-20250514
     litellm_params:
       model: anthropic/claude-sonnet-4-20250514
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  # Claude Opus -- for complex, high-stakes tasks
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+      thinking: null
+
   - model_name: claude-opus-4-20250514
     litellm_params:
       model: anthropic/claude-opus-4-20250514
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  # Default catch-all: any model name Claude Code sends gets routed to Sonnet
   - model_name: "*"
     litellm_params:
       model: anthropic/claude-sonnet-4-20250514
       api_key: os.environ/ANTHROPIC_API_KEY
 
 litellm_settings:
-  # arize_phoenix callback sends every request/response to Phoenix automatically
   callbacks: ["arize_phoenix"]
-
-  # Log full request and response content in traces (disable for sensitive code)
   turn_off_message_logging: false
+  drop_params: true
 
 general_settings:
-  # master_key: the token engineers use to authenticate with the proxy.
-  # This is NOT the Anthropic API key -- it is a local access token.
-  # In a team deployment, generate per-engineer virtual keys from this master key
-  # to enable individual usage tracking and rate limiting.
   master_key: "sk-venti-local"
