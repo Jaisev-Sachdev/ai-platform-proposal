@@ -25,16 +25,11 @@ Both tools are fully self-hostable. All code, prompts, and trace data remain on 
 
 Each engineer at Venti independently configures and uses AI coding assistants. The practical result:
 
-- **Inconsistent output.** Two engineers asking the same question get different results based on how each has learned to prompt. There is no shared prompting standard, no shared system instruction, and no shared configuration. A code review from one agent does not follow the same checklist as a code review from another.
-- **Non-reproducible workflows.** When an engineer finds an effective way to use Claude Code for a specific task (writing telemetry parsers, debugging integration test failures, generating migration scripts), that knowledge stays on their machine. It is not captured, versioned, or shared.
-- **No shared visibility.** Without a unified observability layer, questions like these are difficult to answer consistently: How many tokens are we using per week? Which projects are consuming the most AI resources? Are the AI-generated code reviews actually catching bugs, or are they generic? What is our cost per engineer per month? Each engineer's usage is siloed to their own setup, with no aggregated view across the team.
-- **No standardisation.** Different engineers use different AI tools, different models, and different instructions. The output of AI-assisted work is non-uniform, making it harder to review or trust at scale.
+- **Inconsistent output.** Two engineers asking the same question get different results based on how each has learned to prompt. There is no shared standard, no shared system instructions, and no shared configuration. A code review from one agent does not follow the same checklist as a review from another.
+- **Non-reproducible workflows.** When an engineer finds an effective way to use Claude Code for a task, that knowledge stays on their machine. It is not captured, versioned, or shared.
+- **No visibility.** Questions like "how many tokens are we using per week?", "which projects are consuming the most AI resources?", and "what is our cost per engineer?" cannot be answered. Each engineer's usage is siloed with no aggregated view across the team.
 
-### 1.2 Why This Gets Worse Over Time
-
-Without intervention, these problems compound. As more engineers adopt AI tools, the divergence in approach increases. Knowledge that should be institutional remains individual. Costs become difficult to attribute or audit. Quality remains non-deterministic.
-
-The solution is not to restrict how engineers use AI. It is to provide a shared management and observability layer that makes AI usage consistent, measurable, and improvable without getting in the way of individual engineers' workflows.
+Without intervention these problems compound. The solution is not to restrict how engineers use AI. It is to provide a shared management and observability layer that makes AI usage consistent, measurable, and improvable.
 
 ---
 
@@ -65,24 +60,31 @@ The proposed stack has two layers:
              │   Claude Code          │  ← or Codex, Gemini, etc.
              │   (local CLI)          │    API keys stay local
              └───────────┬────────────┘
-                         │ Anthropic SDK calls
-┌────────────────────────▼────────────────────────────────────────┐
-│                        ARIZE PHOENIX (self-hosted)              │
-│   LLM observability layer                                       │
-│                                                                 │
-│   Traces · Evaluations · Datasets · Prompt experiments          │
-│                                                                 │
-│   Runs alongside Multica via Docker                             │
-│   UI: http://phoenix.internal:6006                              │
-│   OTLP collector: http://phoenix.internal:4317                  │
-└─────────────────────────────────────────────────────────────────┘
+                         │ all API calls route through proxy
+             ┌───────────▼────────────┐
+             │   LiteLLM Proxy        │  ← localhost:4000
+             │   (local, per machine) │    intercepts every call
+             └──────┬─────────┬───────┘
+                    │         │ traces every call via OTLP
+                    │         ▼
+                    │  ┌──────────────────────────────────────────┐
+                    │  │        ARIZE PHOENIX (self-hosted)        │
+                    │  │   LLM observability layer                 │
+                    │  │                                           │
+                    │  │   Traces · Evaluations · Datasets         │
+                    │  │   Prompt experiments                      │
+                    │  │                                           │
+                    │  │   UI: http://phoenix.internal:6006        │
+                    │  │   OTLP: http://phoenix.internal:4317      │
+                    │  └──────────────────────────────────────────┘
+                    │ forwards request
+                    ▼
+             Anthropic API
 ```
 
 **Multica** is the team's issue tracker and workflow surface. It has a kanban board with seven statuses (Backlog, Todo, In Progress, In Review, Done, Blocked, Cancelled), Jira-style issue numbers (`PREFIX-123`), projects, comments, and priority levels, the same shape as Linear or Jira. The defining difference is that the assignee on any issue can be a person or an agent. An engineer assigns a ticket to `venti-reviewer` the same way they would assign it to a colleague; the agent claims it within seconds, works, posts comments, and moves the ticket to Done. The whole team sees this on the same kanban they use for their own work. Nothing about the workflow changes; agents just become teammates on the board.
 
 **Phoenix** is the observability layer. It is the answer to "how do we see what the AI is actually doing, how much it costs, and whether it is getting better or worse?" Every Anthropic SDK call made by any Claude Code agent flows through Phoenix as an OpenTelemetry trace span.
-
-**A note on instrumentation pathways.** There are two ways Claude Code calls reach Phoenix, and they are worth distinguishing. The first is Python SDK instrumentation, shown in `demo/demo.py`: a Python script imports `AnthropicInstrumentor` and all `client.messages.create()` calls are automatically captured. This is the right approach for background scripts, data pipeline jobs, and any Python code that calls the Anthropic API directly. The second pathway is for interactive Claude Code CLI sessions running via the Multica daemon: here, instrumentation is achieved through Phoenix's Claude Code MCP integration, which provides tools the agent can invoke to log its own traces. Both pathways write to the same Phoenix project and produce the same trace format. The demo covers the first pathway; the MCP integration pathway is documented in Phoenix's Claude Code setup guide and should be configured when onboarding engineers to the daemon.
 
 **How this solves the consistency problem.** Today, every engineer's AI setup is their own island: different prompts, different instructions, different habits, no shared knowledge. Multica collapses that by making agents (with their standardised system instructions and shared skills) the team's common interface to AI. When an engineer assigns a code review ticket to `venti-reviewer`, they get the same output whether they are a junior engineer on their first week or a senior who has been at Venti for three years, because the agent's behaviour is defined by shared skills and instructions that the whole team owns and iterates on. The kanban board makes AI-assisted work visible and trackable alongside human work, so it is managed rather than ad hoc. Phoenix adds the measurement layer: every AI call is traced, so the team can see whether the standardised approach is actually producing better output over time, and adjust the skills when it is not. Consistency is not enforced by restricting engineers; it is achieved by giving agents a shared, versioned definition of how to do each type of task.
 
@@ -145,32 +147,28 @@ Beyond general LLM evaluations, two domain-specific scoring systems are proposed
 
 #### Code review quality score
 
-Each completed code review trace receives three custom evaluation scores computed by a lightweight LLM-as-judge evaluator:
+Each completed code review trace receives three LLM-as-judge scores:
 
 | Dimension | Question | Range |
 |-----------|----------|-------|
-| **Relevance** | Did the review address the actual code shown, not a generic response? | 0.0 to 1.0 |
-| **Specificity** | Does the review include concrete line-level or pattern-level feedback? | 0.0 to 1.0 |
-| **Actionability** | Does each identified issue include a suggested fix or clear direction? | 0.0 to 1.0 |
+| **Relevance** | Did the review address the actual code shown? | 0.0 to 1.0 |
+| **Specificity** | Does the review include concrete line-level feedback? | 0.0 to 1.0 |
+| **Actionability** | Does each issue include a suggested fix? | 0.0 to 1.0 |
 
-A composite review score (average of the three dimensions) is stored as a custom attribute on the Phoenix span. This enables filtering for reviews that fall below a quality threshold, identifying which agents or skill versions produce better reviews, and tracking improvement as skills are updated.
-
-The rubric maps directly to the `venti-code-review` skill's output format: a `[MUST FIX]` item with no suggested fix scores low on actionability, while a vague general comment scores low on specificity. The scores make it possible to detect when a skill update degrades output quality before the team notices it manually.
+A composite score is stored as a custom Phoenix span attribute, enabling quality trend tracking and early detection of skill regressions.
 
 #### Code style conformance score
 
-When `venti-reviewer` processes a Python file, it also checks the code against Venti's style standards using three standard tools: `black` for formatting, `flake8` for style, and `mypy` for type annotation correctness. Results are encoded as structured metadata on the Phoenix span:
+When `venti-reviewer` processes a Python file, it checks against Venti's style standards using `black`, `flake8`, and `mypy`:
 
 | Attribute | What it captures |
 |-----------|-----------------|
-| `lint.format_errors` | Count of formatting violations (black) |
-| `lint.style_errors` | Count of style violations (flake8) |
-| `lint.type_errors` | Count of type annotation errors (mypy) |
-| `lint.conformance_score` | Composite: 1 minus (total errors divided by lines of code), normalised to 0.0 to 1.0 |
+| `lint.format_errors` | Formatting violations (black) |
+| `lint.style_errors` | Style violations (flake8) |
+| `lint.type_errors` | Type annotation errors (mypy) |
+| `lint.conformance_score` | 1 minus (total errors / lines of code), 0.0–1.0 |
 
-Aggregated over time per project and per agent, the conformance score trend shows whether AI-generated code is getting cleaner or drifting from the team's standards. A drop in conformance after a skill update signals that the update introduced a regression in style guidance. A sustained rise indicates the skill is effectively encoding Venti's conventions.
-
-Both scoring systems store their results in Phoenix alongside the raw trace, making them queryable, exportable, and available for driving skill improvements over time.
+Trend lines in Phoenix show whether AI-generated code is getting cleaner or drifting from team standards over time.
 
 ### 3.5 Alerting (Phase 2)
 
@@ -192,11 +190,7 @@ A runtime in Multica is the pairing of one daemon instance on one machine with o
 
 **Monitoring:** The Runtimes page in the Multica UI shows each runtime's online/offline status, heartbeat recency, and activity heatmap. Runtimes send heartbeats every 15 seconds; a runtime is marked offline after 45 seconds without a heartbeat. Offline runtimes are surfaced prominently in the dashboard, so the team lead can see at a glance if any machine is down.
 
-**Naming convention:** Runtimes are named automatically by the daemon as `{hostname}-{tool}` (e.g. `jaisev-macbook-claude-code`). Establish a consistent hostname convention across the team so runtimes are identifiable on the dashboard.
-
-**Concurrency:** The daemon handles up to 20 concurrent tasks by default. Per-agent concurrency defaults to 6. For agents expected to handle high volume (e.g. an overnight batch review agent), increase `max_concurrent_tasks` in the agent config.
-
-**Future:** Multica has announced cloud runtimes (currently waitlist-only). Once available, this enables running agent tasks directly on Multica Cloud without a local daemon. This is useful for batch jobs that should run even when engineers are offline. Evaluate when it becomes available.
+**Future:** Multica has announced cloud runtimes (currently waitlist-only). Once available, agents can run without a local daemon, enabling batch jobs that run when engineers are offline. Worth evaluating when it becomes available.
 
 ### 4.2 Agents
 
@@ -263,7 +257,7 @@ Phoenix will capture all AI calls for this team under project `venti-fullstack`,
 
 ### 5.2 Integration and Validation (IV)
 
-Primary workflows: validating AV software builds against real vehicle hardware, writing integration test suites, debugging vehicle-hardware failures.
+Primary workflows: validating AV software builds against real vehicle hardware, integration test suites, debugging hardware failures.
 
 | Task | Agent | Skill |
 |------|-------|-------|
@@ -271,19 +265,15 @@ Primary workflows: validating AV software builds against real vehicle hardware, 
 | Failure log analysis | `venti-reviewer` | (to be authored: `venti-log-analysis`) |
 | Validation script review | `venti-reviewer` | `venti-code-review` |
 
-The IV team's code is often safety-critical. The `venti-code-review` skill's risk-level classification (`Critical` / `High` / `Standard`) is specifically designed for this team's needs.
-
 ### 5.3 Simulation Engineering
 
-Primary workflows: building and maintaining virtual test environments, writing scenario scripts, validating simulator fidelity.
+Primary workflows: virtual test environments, scenario scripts, simulator fidelity validation.
 
 | Task | Agent | Skill |
 |------|-------|-------|
 | Scenario script generation | `venti-telemetry-dev` | (to be authored: `venti-simulation`) |
 | Test harness code review | `venti-reviewer` | `venti-code-review` |
 | Performance profiling | `venti-reviewer` | `venti-code-review` |
-
-The simulation team often works with large datasets and computationally intensive code. The `venti-telemetry-analysis` skill's performance guidance applies here.
 
 ### 5.4 Data Software and Services (Wang Qiang's team)
 
@@ -295,8 +285,6 @@ Primary workflows: vehicle telemetry ingestion, fleet analytics, data pipeline t
 | Pipeline code review | `venti-reviewer` | `venti-code-review`, `venti-telemetry-analysis` |
 | Query optimisation | `venti-telemetry-dev` | `venti-telemetry-analysis` |
 | Data quality analysis | `venti-telemetry-dev` | `venti-telemetry-analysis` |
-
-This team benefits most immediately from the `venti-telemetry-analysis` skill, which encodes domain context (record schema, failure modes, performance expectations) that currently lives only in experienced engineers' heads.
 
 ---
 
@@ -365,11 +353,9 @@ This team benefits most immediately from the `venti-telemetry-analysis` skill, w
 
 Several alternatives were considered. The recommendation is self-hosted for all components.
 
-**Why not Multica Cloud?** Multica Cloud is the managed backend. It would reduce operational overhead. However, Venti's codebase and issue descriptions would flow through Multica's servers. For an AV company with proprietary vehicle software, keeping task metadata on-premise is prudent. Self-hosted Multica is a single `make selfhost` command and requires minimal maintenance.
+**Why not Multica Cloud or Phoenix Cloud?** Both managed options would route Venti's code, issue descriptions, prompts, and responses through third-party servers. For an AV company with proprietary vehicle software, keeping all of this on-premise is non-negotiable. Both tools are a single Docker command to self-host and require minimal maintenance.
 
-**Why not Phoenix Cloud?** Same reasoning: traces contain full prompts and responses, which include code snippets and engineering context. These should not leave Venti's infrastructure. Phoenix is self-hosted in Docker and runs as a persistent daemon alongside Multica.
-
-**Why not build a custom solution?** The custom alternative would require building task management, agent orchestration, observability, and a shared skills standard from scratch. Multica and Phoenix are production-grade, actively maintained, open-source tools. The time cost of building equivalents would far exceed the time cost of operating these.
+**Why not build a custom solution?** Building equivalent task management, agent orchestration, observability, and a skills standard from scratch would take months. Multica and Phoenix are production-grade, actively maintained, and open source. Operating them costs far less than building them.
 
 ---
 
