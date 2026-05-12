@@ -61,18 +61,35 @@ Open `.env` and fill in your `ANTHROPIC_API_KEY`. Change `PHOENIX_SECRET` to a r
 openssl rand -hex 32   # paste the output into PHOENIX_SECRET in .env
 ```
 
-### Step 3: Start Phoenix
+### Step 3: Start Phoenix and LiteLLM
 
 ```bash
 make phoenix-up
 ```
 
-Phoenix will pull its Docker image (first run: ~2 minutes) and start. When ready:
+This starts three containers:
+- **Phoenix** at http://localhost:6006 (trace dashboard)
+- **Phoenix DB** (PostgreSQL, stores all traces persistently)
+- **LiteLLM proxy** at http://localhost:4000 (intercepts AI calls and traces them)
 
-- **Phoenix UI:** http://localhost:6006
-- **OTLP gRPC collector:** http://localhost:4317 (your instrumented code sends traces here)
+### Step 4: Point Claude Code at the LiteLLM proxy
 
-### Step 4: Set up Multica self-hosted server
+This is what connects Multica agent runs to Phoenix traces. Add these two lines to your shell profile (`~/.bashrc` or `~/.zshrc`):
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:4000
+export ANTHROPIC_API_KEY=sk-venti-local
+```
+
+Then reload your shell:
+
+```bash
+source ~/.bashrc   # or source ~/.zshrc
+```
+
+**Why this works:** Claude Code sends its API calls to LiteLLM on port 4000 instead of Anthropic directly. LiteLLM forwards the request to Anthropic using the real API key stored in the container, and simultaneously sends a trace of every call to Phoenix. Your real API key never leaves the proxy container.
+
+### Step 5: Set up Multica self-hosted server
 
 ```bash
 make multica-clone    # clones https://github.com/multica-ai/multica into ./multica-server
@@ -92,7 +109,7 @@ make multica-logs     # look for: [DEV] Verification code: XXXXXX
 
 Log in and create your first workspace.
 
-### Step 5: Configure the Multica CLI and start the daemon
+### Step 6: Configure the Multica CLI and start the daemon
 
 ```bash
 make multica-cli-setup
@@ -111,7 +128,7 @@ multica daemon status     # should show: running
 multica runtime list      # should show your machine with Claude Code
 ```
 
-### Step 6: Create your first agent
+### Step 7: Create your first agent
 
 In the Multica UI (http://localhost:3000):
 
@@ -129,7 +146,7 @@ Be specific, actionable, and honest. Do not approve code with critical safety is
 5. Visibility: **Workspace**
 6. Click **Create**
 
-### Step 7: Import and attach the skills
+### Step 8: Import and attach the skills
 
 In the Multica UI:
 
@@ -138,7 +155,7 @@ In the Multica UI:
 3. Repeat for: `https://github.com/Jaisev-Sachdev/ai-platform-proposal/tree/main/skills/venti-telemetry-analysis`
 4. Go to **Agents → venti-reviewer → Skills → Attach** and attach `venti-code-review`
 
-### Step 8: Assign your first task
+### Step 9: Assign your first task
 
 In the Multica UI:
 
@@ -150,7 +167,7 @@ In the Multica UI:
 
 Watch the agent claim the task within 3 seconds, start working, and post a review comment.
 
-### Step 9: Run the Phoenix demo
+### Step 10: Run the Phoenix demo
 
 ```bash
 make demo

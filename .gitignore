@@ -1,2 +1,3 @@
 demo/venv/
 demo/__pycache__/
+.env

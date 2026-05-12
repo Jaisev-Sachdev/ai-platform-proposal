@@ -1,18 +1,24 @@
 version: "3.9"
 
 # =============================================================================
-# Venti AI Platform — Phoenix Observability Stack
+# Venti AI Platform -- Phoenix Observability Stack + LiteLLM Proxy
 #
-# Runs Arize Phoenix (LLM tracing + evaluation) backed by PostgreSQL.
-# Designed to run alongside Multica's self-hosted server.
+# Runs three services:
+#   - Arize Phoenix: LLM tracing and evaluation UI
+#   - PostgreSQL: persistent storage for Phoenix traces
+#   - LiteLLM proxy: intercepts all AI calls from any tool (Claude Code, etc.)
+#     and forwards traces to Phoenix automatically
 #
 # Usage:
 #   docker compose -f docker-compose.phoenix.yml up -d
 #
 # Ports exposed:
-#   6006  — Phoenix web UI          (http://localhost:6006)
-#   4317  — OTLP gRPC collector     (used by instrumented code)
-#   4318  — OTLP HTTP collector     (alternative to gRPC)
+#   6006  -- Phoenix web UI          (http://localhost:6006)
+#   4317  -- OTLP gRPC collector     (used by LiteLLM and instrumented code)
+#   4318  -- OTLP HTTP collector     (alternative to gRPC)
+#   4000  -- LiteLLM proxy           (http://localhost:4000)
+#            Point Claude Code here instead of api.anthropic.com
+#            to get automatic tracing of all AI calls into Phoenix.
 #
 # All trace data stays on this machine. Nothing is sent to Arize servers.
 # =============================================================================
@@ -20,7 +26,7 @@ version: "3.9"
 services:
 
   # ---------------------------------------------------------------------------
-  # PostgreSQL — persistent storage for Phoenix traces, datasets, experiments.
+  # PostgreSQL -- persistent storage for Phoenix traces, datasets, experiments.
   # Using a dedicated instance to avoid conflicts with Multica's database.
   # ---------------------------------------------------------------------------
   phoenix-db:
@@ -44,9 +50,9 @@ services:
       - phoenix-net
 
   # ---------------------------------------------------------------------------
-  # Phoenix — AI observability platform.
-  # Collects OpenTelemetry traces from instrumented code, provides UI for
-  # trace inspection, evaluations, dataset management, and prompt experiments.
+  # Phoenix -- AI observability platform.
+  # Collects OpenTelemetry traces from LiteLLM and instrumented code.
+  # Provides UI for trace inspection, evaluations, and prompt experiments.
   # ---------------------------------------------------------------------------
   phoenix:
     image: arizephoenix/phoenix:latest
@@ -56,17 +62,9 @@ services:
       phoenix-db:
         condition: service_healthy
     environment:
-      # Persistent storage: all trace data survives container restarts
       PHOENIX_SQL_DATABASE_URL: postgresql://phoenix:${PHOENIX_DB_PASSWORD:-phoenix}@phoenix-db:5432/phoenix
-
-      # Auth: disabled for local development. Set to "true" for shared/production use.
       PHOENIX_ENABLE_AUTH: ${PHOENIX_ENABLE_AUTH:-false}
-
-      # Required when auth is enabled — generate with: openssl rand -hex 32
       PHOENIX_SECRET: ${PHOENIX_SECRET:-local-dev-secret-change-for-production}
-
-      # Opt out of Phoenix sending page-view analytics to Arize.
-      # Your trace data is NEVER sent; this only covers UI interaction metrics.
       PHOENIX_TELEMETRY_ENABLED: "false"
     ports:
       - "6006:6006"   # Web UI
@@ -76,12 +74,42 @@ services:
       - phoenix_data:/phoenix
     networks:
       - phoenix-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:6006/healthz || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # LiteLLM proxy -- the bridge between Claude Code (and any other AI CLI tool)
+  # and Phoenix.
+  #
+  # How it works:
+  #   Claude Code is pointed at http://localhost:4000 instead of api.anthropic.com.
+  #   LiteLLM forwards every request to Anthropic, then automatically sends a
+  #   trace of that call to Phoenix via OTLP. This captures ALL AI calls from
+  #   ALL tools on this machine -- not just Python SDK calls.
+  #
+  # The master_key (sk-venti-local) is a local access token engineers use to
+  # authenticate with the proxy. It is not an Anthropic key. In a team deployment,
+  # each engineer gets their own virtual key generated from this master key,
+  # enabling per-engineer usage tracking.
+  # ---------------------------------------------------------------------------
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    restart: unless-stopped
+    depends_on:
+      phoenix:
+        condition: service_started
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      PHOENIX_COLLECTOR_ENDPOINT: "http://phoenix:4317"
+      PHOENIX_PROJECT_NAME: ${PHOENIX_PROJECT_NAME:-venti-claude-code}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://phoenix:4317"
+      STORE_MODEL_IN_DB: "false"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - "4000:4000"   # Proxy endpoint -- point Claude Code here
+    networks:
+      - phoenix-net
 
 volumes:
   phoenix_db_data:
@@ -92,3 +120,4 @@ volumes:
 networks:
   phoenix-net:
     driver: bridge
+
