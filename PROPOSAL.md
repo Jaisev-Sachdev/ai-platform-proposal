@@ -9,9 +9,11 @@
 
 ## Executive Summary
 
-Venti's engineering teams currently use AI coding assistants individually, without shared configuration, shared knowledge, or shared visibility into how those tools are being used. This produces inconsistent output quality, non-reproducible workflows, and zero observability into cost or effectiveness.
+The core problem this proposal addresses is not that Venti engineers use AI badly. It is that every engineer uses it differently. Two engineers asking Claude to review the same piece of code will get two different responses, in two different formats, catching two different sets of issues, because each has learned to prompt in their own way. There is no shared standard, no shared knowledge base, and no way to measure whether AI-assisted work is getting better or worse over time. As the team grows and AI usage increases, this inconsistency compounds.
 
-This proposal recommends adopting two open-source tools in tandem: **Multica** for unified agent and task management, and **Arize Phoenix** for LLM observability. Together they give Venti a controlled, measurable, and extensible foundation for AI-assisted engineering, where shared standards compound over time rather than diverging per engineer.
+This proposal recommends adopting two open-source tools in tandem: **Multica** for unified agent and task management, and **Arize Phoenix** for LLM observability, with **LiteLLM** as the proxy layer that connects them. Together they solve the consistency problem at its root: instead of each engineer prompting Claude independently, the whole team shares a common agent with shared instructions, shared domain context, and a shared output format. Every code review follows the same standard. Every data pipeline task uses the same domain knowledge. Every AI call is visible, auditable, and attributable.
+
+This has been demonstrated concretely. A benchmark experiment run as part of this proposal compared generic ad-hoc prompting against the standardised venti-reviewer agent across four representative Venti code samples. The structure score was 0.00 for ad-hoc prompting versus 1.00 for the standardised agent. The format, risk classification, and label structure were consistent on every single run from the agent, and inconsistent on every single run without it. That is the unification argument measured.
 
 Both tools are fully self-hostable. All code, prompts, and trace data remain on Venti's infrastructure at all times.
 
@@ -404,7 +406,23 @@ The following questions should be addressed before Phase 2:
 
 ---
 
-## 10. Next Steps
+## 10. Role of the AI Platform Advocate
+
+This proposal is not a one-time setup. The system compounds in value only if someone actively owns it: onboarding engineers, authoring new skills, maintaining the infrastructure, gathering feedback, and iterating.
+
+As the person proposing this system, I am volunteering to own that role during the internship. Concretely, that means:
+
+- **Onboarding.** Running setup sessions with each engineer joining the platform. Writing and maintaining the onboarding guide. Being the first point of contact when something breaks.
+- **Skills authorship.** Writing new skills as the team identifies repeatable task patterns. Each new skill compounds value for the entire team. The goal is at least one new skill per sprint during Phase 1.
+- **Platform health.** Monitoring the Multica and Phoenix containers, handling version upgrades, and resolving configuration issues so engineers do not have to.
+- **Measurement.** Running the evaluation benchmarks on a regular cadence to track whether agent output quality is improving. Presenting results to the team lead with specific recommendations for skill updates when scores drop.
+- **Advocacy.** Running internal demos for new teams before Phase 2 and Phase 3 onboarding. Collecting friction points from early adopters and feeding them back into the skills and configuration.
+
+I will work under Wang Qiang's direction on all of the above. The expectation is not that I operate independently, but that the platform has a dedicated owner who treats it as a product, not infrastructure.
+
+---
+
+## 11. Next Steps
 
 Immediate actions following review of this proposal:
 
