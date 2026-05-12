@@ -17,6 +17,7 @@ Read [`PROPOSAL.md`](./PROPOSAL.md) for the full architecture and rollout plan.
 | `Makefile` | Shortcuts for every operation (`make help` to list all) |
 | `demo/demo.py` | Tracing demo: 3 Claude API calls, all captured in Phoenix |
 | `demo/requirements.txt` | Python dependencies for the demo |
+| `demo/experiment.py` | Consistency experiment: baseline vs venti-reviewer scored across 4 representative code samples |
 | `skills/venti-code-review/SKILL.md` | Shared code review skill for all Multica agents |
 | `skills/venti-telemetry-analysis/SKILL.md` | Telemetry domain context skill for data pipeline agents |
 | `PROPOSAL.md` | Full written proposal: monitoring strategy, management plan, rollout |
@@ -88,6 +89,8 @@ source ~/.bashrc   # or source ~/.zshrc
 ```
 
 **Why this works:** Claude Code sends its API calls to LiteLLM on port 4000 instead of Anthropic directly. LiteLLM forwards the request to Anthropic using the real API key stored in the container, and simultaneously sends a trace of every call to Phoenix. Your real API key never leaves the proxy container.
+
+> **Note for demo.py and experiment.py:** These scripts load the real API key from `.env` directly. Before running either script, unset the proxy variables: `unset ANTHROPIC_BASE_URL && unset ANTHROPIC_API_KEY`. The scripts will load the correct key from `.env` automatically.
 
 ### Step 5: Set up Multica self-hosted server
 
