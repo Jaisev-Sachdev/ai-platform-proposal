@@ -400,6 +400,8 @@ The following questions should be addressed before Phase 2:
 
 6. **Baseline for scoring.** Section 3.4 defines the scoring rubric (relevance, specificity, actionability for code reviews; black/flake8/mypy for style conformance). Before the evaluation pipeline goes live, the team should run the scorers against a representative sample of existing human-written code reviews to establish a baseline. Without a baseline, scores are absolute numbers with no frame of reference. Collect 20-30 historical review comments and score them to set the "human baseline" before agent scores can be compared meaningfully.
 
+7. **LiteLLM proxy and extended thinking compatibility.** Claude Code's default model (`claude-sonnet-4-6`) sends extended thinking parameters that the current LiteLLM proxy configuration does not fully strip before forwarding to Anthropic. In the Phase 1 pilot, engineers should set `CLAUDE_CODE_DISABLE_EXTENDED_THINKING=1` in their environment when running the daemon to avoid API errors. The longer-term fix is either pinning Claude Code to a model that does not use extended thinking by default, or configuring LiteLLM's `drop_params` handling to correctly intercept this specific parameter. This is a configuration issue, not an architectural one, and does not affect the observability data quality once resolved.
+
 ---
 
 ## 10. Next Steps
@@ -418,7 +420,9 @@ Immediate actions following review of this proposal:
 
 ```
 venti-ai-platform/
-├── docker-compose.phoenix.yml     Phoenix + PostgreSQL, one command
+├── docker-compose.phoenix.yml     Phoenix + PostgreSQL + LiteLLM proxy, one command
+├── litellm/
+│   └── config.yaml                LiteLLM proxy configuration (model routing + Phoenix callback)
 ├── .env.example                   All environment variables documented
 ├── Makefile                       Shortcuts: make up, make demo, make logs
 ├── demo/
