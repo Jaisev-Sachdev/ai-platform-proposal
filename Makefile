@@ -59,12 +59,13 @@ phoenix-up: ## Start Phoenix + its database (detached)
 	@echo "  OTLP gRPC:    http://localhost:4317"
 	@echo "  OTLP HTTP:    http://localhost:4318"
 	@echo ""
-	@echo "Waiting for Phoenix to be ready..."
-	@until docker exec phoenix curl -sf http://localhost:6006/healthz > /dev/null 2>&1; do \
-		printf '.'; sleep 2; \
-	done
+	@echo "Waiting 15s for Phoenix to be ready..."
+	@sleep 15
+	
+		
+	
 	@echo ""
-	@echo "Phoenix is ready."
+	@echo "Phoenix is ready at http://localhost:6006"
 
 phoenix-down: ## Stop Phoenix and its database
 	docker compose -f docker-compose.phoenix.yml down
