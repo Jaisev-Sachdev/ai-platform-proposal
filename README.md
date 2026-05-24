@@ -98,6 +98,7 @@ source ~/.bashrc   # or source ~/.zshrc
 >
 > Also add this to `~/.claude/settings.json` before running the daemon:
 > ```json
+> mkdir -p ~/.claude && cat > ~/.claude/settings.json << 'EOF'
 > {
 >   "env": {
 >     "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
@@ -108,6 +109,7 @@ source ~/.bashrc   # or source ~/.zshrc
 >     "ANTHROPIC_API_KEY": "sk-venti-local"
 >   }
 > }
+> EOF
 > ```
 
 ### Step 5: Set up Multica self-hosted server
