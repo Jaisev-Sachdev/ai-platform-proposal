@@ -97,7 +97,7 @@ source ~/.bashrc   # or source ~/.zshrc
 > later: `sudo npm install -g @anthropic-ai/claude-code`
 >
 > Also add this to `~/.claude/settings.json` before running the daemon:
-> ```json
+> ```bash
 > mkdir -p ~/.claude && cat > ~/.claude/settings.json << 'EOF'
 > {
 >   "env": {
