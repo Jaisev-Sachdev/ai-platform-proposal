@@ -90,7 +90,15 @@ source ~/.bashrc   # or source ~/.zshrc
 
 **Why this works:** Claude Code sends its API calls to LiteLLM on port 4000 instead of Anthropic directly. LiteLLM forwards the request to Anthropic using the real API key stored in the container, and simultaneously sends a trace of every call to Phoenix. Your real API key never leaves the proxy container.
 
-> **Note for demo.py and experiment.py:** These scripts load the real API key from `.env` directly. Before running either script, unset the proxy variables: `unset ANTHROPIC_BASE_URL && unset ANTHROPIC_API_KEY`. The scripts will load the correct key from `.env` automatically.
+> **Important:** The LiteLLM proxy currently has a compatibility issue with Claude Code's extended thinking mode. Until this is resolved, run the Multica daemon with the real API key instead of the proxy:
+> ```
+> multica daemon stop
+> unset ANTHROPIC_BASE_URL
+> export ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY ~/ai-platform-proposal/.env | cut -d= -f2)
+> export CLAUDE_CODE_DISABLE_EXTENDED_THINKING=1
+> multica daemon start
+> ```
+> For demo.py and experiment.py, also unset both variables first — they load the real key from .env automatically.
 
 ### Step 5: Set up Multica self-hosted server
 
