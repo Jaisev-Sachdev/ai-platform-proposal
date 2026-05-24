@@ -90,15 +90,25 @@ source ~/.bashrc   # or source ~/.zshrc
 
 **Why this works:** Claude Code sends its API calls to LiteLLM on port 4000 instead of Anthropic directly. LiteLLM forwards the request to Anthropic using the real API key stored in the container, and simultaneously sends a trace of every call to Phoenix. Your real API key never leaves the proxy container.
 
-> **Important:** The LiteLLM proxy currently has a compatibility issue with Claude Code's extended thinking mode. Until this is resolved, run the Multica daemon with the real API key instead of the proxy:
+> **Note:** Claude Code 2.1.150+ sends an `effort` parameter that requires
+> routing through models that support it. The LiteLLM config in this repo
+> handles this automatically by routing to `claude-opus-4-6` and
+> `claude-sonnet-4-6`. Make sure you are running Claude Code 2.1.150 or
+> later: `sudo npm install -g @anthropic-ai/claude-code`
+>
+> Also add this to `~/.claude/settings.json` before running the daemon:
+> ```json
+> {
+>   "env": {
+>     "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+>     "CLAUDE_CODE_DISABLE_THINKING": "1",
+>     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+>     "CLAUDE_CODE_EFFORT_LEVEL": "high",
+>     "ANTHROPIC_BASE_URL": "http://localhost:4000",
+>     "ANTHROPIC_API_KEY": "sk-venti-local"
+>   }
+> }
 > ```
-> multica daemon stop
-> unset ANTHROPIC_BASE_URL
-> export ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY ~/ai-platform-proposal/.env | cut -d= -f2)
-> export CLAUDE_CODE_DISABLE_EXTENDED_THINKING=1
-> multica daemon start
-> ```
-> For demo.py and experiment.py, also unset both variables first — they load the real key from .env automatically.
 
 ### Step 5: Set up Multica self-hosted server
 
